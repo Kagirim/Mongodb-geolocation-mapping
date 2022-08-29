@@ -1,47 +1,45 @@
 import csv, json
 import re
+import pandas as pd
 
+df = pd.DataFrame()
 csv.field_size_limit(1000000)
-
-step = 100
-batchSize = 200
-numCounties = 3233
-coordGroupSize = 100
+rows = []
 
 with open("us-county-boundaries.csv","r", encoding="utf-8") as f:
     csv_reader = csv.reader(f,delimiter=';')
-    
     count = 0
-    headings = []
-    documentsArray = []
-    
     for row in csv_reader:
         count += 1
-        
-        if count%step == 0:
-            print("{} out of {}".format(count, numCounties))
-        
-        rowDict = {}
+        if count % 100 == 0:
+            print("{} out of {}".format(count, 3233))
         if count == 1:
             headings = row
+
         else:
-            for index,value in enumerate(row):
-                if headings[index] == "Geo Shape":
-                    geoShapeDict = json.loads(row[index])
-                    coordsList = geoShapeDict["coordinates"]
-                    pattern = '((\[\-\d+\.\d+\,\ \d+\.\d+\]\,\ ){' + str(coordGroupSize) + '})'
-                    coordsList = re.sub(pattern, r'\1\n', str(coordsList))
-                    rowDict[headings[index]] = {"coordinates": list(coordsList), "type": geoShapeDict["type"]}
+            rows.append(row)
 
-                elif headings[index] == "Geo Point":
-                    coordsList = [coord for coord in value.split(",")]
-                    geoPoint = [float(coordsList[1]), float(coordsList[0])]
-                    rowDict[headings[index]] = {"type":"Point","coordinates":geoPoint}
-                else:
-                    rowDict[headings[index]] = value
+df = pd.DataFrame(rows, columns = headings)
 
-                documentsArray.append(json.dumps(rowDict))
-                
+# Geo Shape
+geo_shape = df["Geo Shape"]
+for i in geo_shape:
+    geo_shape_dict = json.loads(i)
+    shape_coords = geo_shape_dict["coordinates"]
+    pattern = '((\[\-\d+\.\d+\,\ \d+\.\d+\]\,\ ){' + str(100) + '})'
+    shape_coords = re.sub(pattern, r'\1\n', str(shape_coords))
+    geo_shape = {"coordinates": shape_coords, "type": geo_shape_dict["type"]}
+
+# Geo Point
+geo_points_list = []
+geo_point_column = df["Geo Point"]
+row_count = -1
+for i in geo_point_column:
+    row_count += 1
+    geo_point_coords = [float(coord) for coord in i.split(",")]
+    geo_point_column[row_count] = {"type":"Point","coordinates": geo_point_coords}
+
+
 #insertScript += ",{writeConcern: {w:0}, ordered: false})\n"
 #insertScript += "console.log('$count out of $numCounties)\n"
 insertScript = ""
@@ -65,7 +63,7 @@ mongoClient.connect(url, { useNewUrlParser: true }, (err, client) => {
 
     );\n
 """
-#insertScript += "client.collection('counties').insertMany({})\n".format(documentsArray)
+insertScript += "client.collection('counties').insertMany({})\n".format(df.to_dict("records"))
 
 insertScript += """
 client.close();
@@ -74,5 +72,4 @@ client.close();
 """
 
 with open("mod14q1_insertCounties.js","w") as f:
-    pass
-    #f.write(insertScript)
+    f.write(insertScript)
